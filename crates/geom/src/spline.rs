@@ -26,6 +26,10 @@ pub struct Spline {
     /// edits to the fit points rebuild it the same way.
     #[serde(default)]
     pub fit_opts: FitOptions,
+    /// For a Bézier path ([`crate::BezierPath`]): the points, by number, whose two handles
+    /// move independently of each other. Empty for any other spline.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub free_points: Vec<usize>,
 }
 
 impl Spline {
@@ -34,7 +38,16 @@ impl Spline {
         let n = control.len();
         let degree = degree.clamp(1, n.saturating_sub(1).max(1));
         let knots = clamped_uniform_knots(n, degree);
-        Spline { degree, knots, control, weights: Vec::new(), fit: Vec::new(), closed: false, fit_opts: FitOptions::default() }
+        Spline {
+            degree,
+            knots,
+            control,
+            weights: Vec::new(),
+            fit: Vec::new(),
+            closed: false,
+            fit_opts: FitOptions::default(),
+            free_points: Vec::new(),
+        }
     }
 
     /// Cubic interpolation through fit points (chord-length parametrisation, natural-ish ends

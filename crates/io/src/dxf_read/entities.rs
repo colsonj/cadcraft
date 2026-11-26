@@ -112,7 +112,7 @@ fn spline(t: &T) -> Spline {
         cadcraft_geom::FitOptions { knots: Default::default(), start_tangent: tangent(12), end_tangent: tangent(13), tolerance: t.fd(44, 0.0) }
             .sanitized();
     let closed = t.i(70).unwrap_or(0) & 1 != 0;
-    let mut sp = Spline { degree, knots, control, weights, fit: fit.clone(), closed, fit_opts };
+    let mut sp = Spline { degree, knots, control, weights, fit: fit.clone(), closed, fit_opts, free_points: Vec::new() };
     if !sp.is_valid() && fit.len() >= 2 {
         sp = Spline::fit_with(&fit, sp.closed, fit_opts);
     } else if !sp.is_valid() && sp.control.len() >= 2 {
@@ -120,6 +120,20 @@ fn spline(t: &T) -> Spline {
     } else if fit.len() >= 3 {
         // DXF keeps the knots, not how they were spaced: recover it for later refits.
         sp.fit_opts.knots = sp.infer_knot_param();
+    }
+    // The points of a Bézier path whose handles are independent (our writer's xdata): the
+    // numbers after "BEZIERFREE", up to the next string.
+    let x = crate::dxf_ext::xdata(t.0, crate::dxf_ext::APP);
+    if let Some(at) = x.iter().position(|g| g.code == 1000 && g.str().trim() == "BEZIERFREE") {
+        let points = sp.control.len();
+        sp.free_points = x
+            .iter()
+            .skip(at + 1)
+            .take_while(|g| g.code == 1070)
+            .filter_map(|g| usize::try_from(g.i64()).ok())
+            .filter(|i| *i < points)
+            .take(crate::dxf_ext::MAX_FREE_POINTS)
+            .collect();
     }
     sp
 }

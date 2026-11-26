@@ -12,6 +12,7 @@ use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2, vec2};
 use crate::CadApp;
 use crate::theme::Tokens;
 
+mod bezier;
 mod cursor;
 mod cycle;
 mod draw;
@@ -167,6 +168,12 @@ pub struct CanvasState {
     pub grip_dyn: crate::grip_dyn::GripDyn,
     /// A GRIP edit was running last frame (its grips go cold when it ends).
     grip_editing: bool,
+    /// BEZIER is asking for the handle of the point the held press placed: the press became a
+    /// drag, and the handle ends where the button comes up.
+    bezier_handle: bool,
+    /// Where and when the last press placed a BEZIER point: a second press there straight after
+    /// (a double-click) ends the curve.
+    bezier_click: Option<(Pos2, f64)>,
     /// The grip whose menu (Stretch, Add Vertex, Lengthen…) a right-click opened.
     pub(crate) grip_menu: Option<(Handle, usize)>,
     /// Dynamic block grips of the selection (cached), the one being dragged, and the list grip
@@ -790,6 +797,10 @@ fn handle_presses(app: &mut CadApp, ui: &egui::Ui, context: &PressContext) -> bo
                     app.canvas.press = Some(press::Press::new(pos, false));
                     continue;
                 }
+                if bezier::second_click(app, pos, now) {
+                    app.canvas.press = Some(press::Press::new(pos, false));
+                    continue;
+                }
                 if press_takes(app, &xf, pos) {
                     let opened = press_at(app, &xf, ui.ctx(), pos, m);
                     app.canvas.press = Some(press::Press::new(pos, opened));
@@ -803,11 +814,26 @@ fn handle_presses(app: &mut CadApp, ui: &egui::Ui, context: &PressContext) -> bo
             press::Step::Move(pos) => {
                 if let Some(p) = &mut app.canvas.press {
                     p.moved(pos, now);
+                    if p.has_left() {
+                        bezier::drag_started(app);
+                    }
                 }
             }
             press::Step::Up(pos) => {
                 let Some(mut p) = app.canvas.press.take() else { continue };
                 click_used = true;
+                if app.canvas.bezier_handle {
+                    app.canvas.bezier_handle = false;
+                    if bezier::running(app) {
+                        // Let go back on the point: no handle after all.
+                        if p.is_near(pos) {
+                            let _ = app.session.input(Input::Enter);
+                        } else {
+                            press_at(app, &xf, ui.ctx(), pos, mods);
+                        }
+                    }
+                    continue;
+                }
                 if p.is_on_grip() {
                     if grip_clicks && let Some((at, m)) = p.grip_click(pos) {
                         if let Some(g) = crate::dyngrips::at(app, &xf, Some(at)) {
@@ -832,6 +858,9 @@ fn handle_presses(app: &mut CadApp, ui: &egui::Ui, context: &PressContext) -> bo
     if !primary_down {
         // The button came up where we didn't see it (outside the window, say).
         app.canvas.press = None;
+        if std::mem::take(&mut app.canvas.bezier_handle) && bezier::running(app) {
+            let _ = app.session.input(Input::Enter);
+        }
     }
     click_used
 }
@@ -1290,6 +1319,7 @@ fn paint_canvas(frame: CanvasPaint<'_>) {
             {
                 let grips = e.kind.grips();
                 let count = grips.len();
+                bezier::paint_handles(painter, &xf, &e.kind, t.grip);
                 for (gi, g) in grips.into_iter().enumerate() {
                     let sp = xf.to_screen(g);
                     if rect.contains(sp) {

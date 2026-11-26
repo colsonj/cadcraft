@@ -364,6 +364,10 @@ pub(crate) fn transparency_from_dxf(v: i64) -> Option<u8> {
     u8::try_from(100u32.saturating_sub(opaque).min(90)).ok()
 }
 
+/// At most this many Bézier path points are marked as having independent handles in a
+/// spline's xdata (an object's xdata is limited in size).
+pub(crate) const MAX_FREE_POINTS: usize = 1000;
+
 /// An xdata string cut to the 255 bytes a `1000` group may hold, at a character boundary.
 pub(crate) fn xdata_str(s: &str) -> &str {
     let mut end = s.len().min(255);

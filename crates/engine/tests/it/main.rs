@@ -15,6 +15,7 @@ mod attrib_props;
 mod attribute_tag_matching;
 mod attribute_tools;
 mod attribute_value_baseline;
+mod bezier;
 mod block_description;
 mod block_keep;
 mod block_redefine;

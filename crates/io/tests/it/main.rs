@@ -9,6 +9,7 @@ mod assoc_dependency_prune;
 mod attdef_insert_dwg;
 mod attrib_modes;
 mod attrib_props;
+mod bezier_path;
 mod block_expansion;
 mod closed_spline;
 mod codepages;

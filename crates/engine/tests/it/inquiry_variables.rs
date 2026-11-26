@@ -109,6 +109,7 @@ fn area_of_an_open_spline_closes_it_by_its_chord() {
         fit: Vec::new(),
         closed: false,
         fit_opts: Default::default(),
+        free_points: Vec::new(),
     };
     let mut s = Session::new();
     let space = s.space();

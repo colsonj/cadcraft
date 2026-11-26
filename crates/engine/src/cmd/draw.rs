@@ -1,5 +1,5 @@
 //! Draw commands: LINE, PLINE, CIRCLE, ARC, RECTANG, POLYGON, ELLIPSE, POINT, XLINE, RAY,
-//! SPLINE, DONUT, SOLID, TEXT, MTEXT. Each has a JSON form and an interactive prompt sequence.
+//! SPLINE, BEZIER, DONUT, SOLID, TEXT, MTEXT. Each has a JSON form and an interactive prompt sequence.
 
 use cadcraft_doc::{EntityKind, HAlign, MText, Point, RayLine, Text, VAlign};
 use cadcraft_geom::{Arc, Circle, Ellipse, PolyVertex, Polyline, Spline, Vec2, arc_to_bulge, bulge_to_arc};
@@ -13,6 +13,7 @@ use super::{CommandSpec, bad, bool_or, distinct_points, f64_or, f64_req, point_p
 
 use crate::{Accept, Input, Interactive, Prompt, Result, Session, Step, snap};
 
+mod bezier;
 mod circle;
 mod ellipse;
 mod line_pline;
@@ -22,6 +23,7 @@ mod solid;
 mod spline;
 mod text;
 
+use bezier::{BezierM, run_bezier};
 use circle::{CircleM, run_arc, run_circle};
 pub(crate) use ellipse::ellipse_machine;
 use ellipse::{EllipseM, run_ellipse};
@@ -97,6 +99,11 @@ pub fn specs() -> Vec<CommandSpec> {
             .alias(&["spl"])
             .params("{fit: [[x,y],...], closed?, knots?: chord|sqrt|uniform, startTangent?, endTangent? ([dx,dy]), tolerance?} | {control: [...], degree?} | {object: handle|true, handles?} (polyline to spline)")
             .interactive(|_| Ok(Box::new(SplineM::default()))),
+        CommandSpec::new("bezier", "Bezier Curve", run_bezier)
+            .menu(&["Draw", "Bezier Curve"])
+            .alias(&["bez"])
+            .params("{points: [[x,y] | {at: [x,y], handle?: [x,y] (outgoing handle end; the incoming one mirrors it), in?: [x,y], out?: [x,y] (handle ends)}, ...], closed?}")
+            .interactive(|_| Ok(Box::new(BezierM::default()))),
         CommandSpec::new("donut", "Donut", run_donut)
             .menu(&["Draw", "Donut"])
             .alias(&["do", "doughnut"])

@@ -371,7 +371,13 @@ impl Interactive for GripEdit {
                     GripAction::ToArc => ("Specify a point on the arc", Accept::POINT),
                     GripAction::Lengthen => ("Specify end point or length change", Accept::POINT_OR_NUMBER),
                     GripAction::Radius => ("Specify radius", Accept::POINT_OR_NUMBER),
-                    GripAction::RemoveVertex | GripAction::ToLine => ("", Accept::POINT),
+                    GripAction::MoveHandleAlone => ("Specify handle end", Accept::POINT),
+                    GripAction::RemoveVertex
+                    | GripAction::ToLine
+                    | GripAction::SmoothPoint
+                    | GripAction::CornerPoint
+                    | GripAction::RetractHandle
+                    | GripAction::IndependentHandles => ("", Accept::POINT),
                 };
                 Prompt::new(format!("{} {msg}", a.title()), accept).kw(&["eXit"]).base(base)
             }

@@ -23,7 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("grip.mirror", "Grip Mirror", run_grip_mirror)
             .params("{handles?, base | baseHandle+index, to (second mirror point), copy?}"),
         CommandSpec::new("grip.option", "Grip Option", run_grip_option).params(
-            "{handle, index, option: addVertex|removeVertex|toArc|toLine|lengthen|radius, to? (point), value? (lengthen: length change; radius)}",
+            "{handle, index, option: addVertex|removeVertex|toArc|toLine|lengthen|radius|smoothPoint|cornerPoint|moveHandleAlone|retractHandle|independentHandles, to? (point), value? (lengthen: length change; radius)}",
         ),
         CommandSpec::new("grip", "Grip Edit", run_grip)
             .params("interactive: select grips, then the grip modes with [Base point/Copy/Undo/Reference/eXit]; JSON: use grip.stretch/move/rotate/scale/mirror")
@@ -135,10 +135,12 @@ fn run_grip_option(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "grip.option";
     let h = curves::handle_param(p, "handle").ok_or_else(|| bad(cmd, "`handle` is required"))?;
     let i = index_param(cmd, p)?;
-    let action: GripAction = p
-        .get("option")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .ok_or_else(|| bad(cmd, "`option` must be addVertex, removeVertex, toArc, toLine, lengthen or radius"))?;
+    let action: GripAction = p.get("option").and_then(|v| serde_json::from_value(v.clone()).ok()).ok_or_else(|| {
+        bad(
+            cmd,
+            "`option` must be addVertex, removeVertex, toArc, toLine, lengthen, radius, smoothPoint, cornerPoint, moveHandleAlone, retractHandle or independentHandles",
+        )
+    })?;
     if curves::is_locked(s, h) {
         return Err(EngineError::Other("The object is on a locked layer.".into()));
     }

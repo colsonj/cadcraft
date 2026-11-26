@@ -244,6 +244,15 @@ fn write_basic_entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bo
             for f in &s.fit {
                 w.p(11, f.to3(0.0));
             }
+            // A Bézier path's points with independent handles, which the spline's geometry
+            // does not show: kept as CADCraft xdata, one number per point.
+            if !s.free_points.is_empty() {
+                w.s(1001, dxf_ext::APP);
+                w.s(1000, "BEZIERFREE");
+                for i in s.free_points.iter().take(dxf_ext::MAX_FREE_POINTS) {
+                    w.i(1070, *i as i64);
+                }
+            }
         }
         EntityKind::Helix(h) => {
             // A cubic spline through points on the helix, then the helix data (DXF Reference).

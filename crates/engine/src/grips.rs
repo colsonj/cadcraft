@@ -5,7 +5,7 @@
 //! undoable and reachable from scripts, the control channel and MCP.
 
 use cadcraft_doc::{DimKind, EntityKind, Handle, LwPolyline};
-use cadcraft_geom::{Arc, EPS, Mat3, Polyline, Vec2, Vec3, norm_angle};
+use cadcraft_geom::{Arc, BezierPart, BezierPath, EPS, Mat3, Polyline, Vec2, Vec3, norm_angle};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -74,6 +74,42 @@ fn poly_grip(p: &LwPolyline, index: usize) -> Option<PolyGrip> {
     None
 }
 
+/// What grip `index` of a Bézier path edits: a handle, or the point when the grip is the point
+/// or a handle retracted onto it.
+fn bezier_grip(path: &BezierPath, index: usize) -> Option<BezierPart> {
+    let part = path.part(index)?;
+    let out = match part {
+        BezierPart::Point(_) => true,
+        BezierPart::Before(i) => path.points.get(i)?.has_before(),
+        BezierPart::After(i) => path.points.get(i)?.has_after(),
+    };
+    Some(match part {
+        BezierPart::Before(i) | BezierPart::After(i) if !out => BezierPart::Point(i),
+        part => part,
+    })
+}
+
+/// Drag grip `index` of a spline to `to`: a Bézier path's point or handle, a control vertex, or
+/// a fit point (the curve is fitted again).
+fn stretch_spline(sp: &mut cadcraft_geom::Spline, index: usize, to: Vec2) -> Option<()> {
+    if let Some(mut path) = BezierPath::from_spline(sp) {
+        // A handle goes its own way; a point, or a retracted handle lying on it, moves the
+        // point with its handles.
+        match bezier_grip(&path, index)? {
+            BezierPart::Point(i) => path.move_point(i, to)?,
+            part => path.move_handle(part, to, false)?,
+        }
+        *sp = path.to_spline()?;
+    } else if sp.fit.is_empty() {
+        *sp.control.get_mut(index)? = to;
+    } else {
+        let mut fit = sp.fit.clone();
+        *fit.get_mut(index)? = to;
+        *sp = sp.refit(&fit, sp.closed);
+    }
+    Some(())
+}
+
 /// The shape after dragging grip `index` to `to` (STRETCH mode). `None` when the grip does not
 /// exist or the result would be degenerate.
 pub fn stretch_grip(kind: &EntityKind, index: usize, to: Vec2) -> Option<EntityKind> {
@@ -134,15 +170,7 @@ pub fn stretch_grip(kind: &EntityKind, index: usize, to: Vec2) -> Option<EntityK
             stretch_polyline(p, index, to, delta)?;
         }
         EntityKind::Polyline3d(p) => set_xy(p.points.get_mut(index)?, to),
-        EntityKind::Spline(sp) => {
-            if sp.fit.is_empty() {
-                *sp.control.get_mut(index)? = to;
-            } else {
-                let mut fit = sp.fit.clone();
-                *fit.get_mut(index)? = to;
-                *sp = sp.refit(&fit, sp.closed);
-            }
-        }
+        EntityKind::Spline(sp) => stretch_spline(sp, index, to)?,
         // Centre, base radius (and start angle), top radius.
         EntityKind::Helix(h) => match index {
             0 => return Some(translated(kind, delta)),
@@ -353,6 +381,17 @@ pub enum GripAction {
     Lengthen,
     /// Arc midpoint: change the radius, keeping the center and angles.
     Radius,
+    /// Bézier point: put its handles in one line (a corner gets handles).
+    SmoothPoint,
+    /// Bézier point: retract both handles.
+    CornerPoint,
+    /// Bézier handle: move it without turning the handle on the other side.
+    MoveHandleAlone,
+    /// Bézier handle: retract it onto its point.
+    RetractHandle,
+    /// Bézier point or handle: from now on moving one handle of the point leaves the other
+    /// where it is. Smooth Point links them again.
+    IndependentHandles,
 }
 
 impl GripAction {
@@ -365,6 +404,11 @@ impl GripAction {
             GripAction::ToLine => "conVert to line",
             GripAction::Lengthen => "Lengthen",
             GripAction::Radius => "Radius",
+            GripAction::SmoothPoint => "Smooth point",
+            GripAction::CornerPoint => "cOrner point",
+            GripAction::MoveHandleAlone => "Move handle alone",
+            GripAction::RetractHandle => "reTract handle",
+            GripAction::IndependentHandles => "Independent handles",
         }
     }
     /// The grip menu label.
@@ -376,6 +420,11 @@ impl GripAction {
             GripAction::ToLine => "Convert to Line",
             GripAction::Lengthen => "Lengthen",
             GripAction::Radius => "Radius",
+            GripAction::SmoothPoint => "Smooth Point",
+            GripAction::CornerPoint => "Corner Point",
+            GripAction::MoveHandleAlone => "Move Handle Alone",
+            GripAction::RetractHandle => "Retract Handle",
+            GripAction::IndependentHandles => "Independent Handles",
         }
     }
     /// The mode name on the command line ("** ADD VERTEX **").
@@ -387,11 +436,16 @@ impl GripAction {
             GripAction::ToLine => "** CONVERT TO LINE **",
             GripAction::Lengthen => "** LENGTHEN **",
             GripAction::Radius => "** RADIUS **",
+            GripAction::SmoothPoint => "** SMOOTH POINT **",
+            GripAction::CornerPoint => "** CORNER POINT **",
+            GripAction::MoveHandleAlone => "** MOVE HANDLE ALONE **",
+            GripAction::RetractHandle => "** RETRACT HANDLE **",
+            GripAction::IndependentHandles => "** INDEPENDENT HANDLES **",
         }
     }
     /// Whether the option needs a point (or value); the others act at once.
     pub fn needs_point(self) -> bool {
-        !matches!(self, GripAction::RemoveVertex | GripAction::ToLine)
+        matches!(self, GripAction::AddVertex | GripAction::ToArc | GripAction::Lengthen | GripAction::Radius | GripAction::MoveHandleAlone)
     }
 }
 
@@ -412,6 +466,32 @@ pub fn grip_actions(kind: &EntityKind, index: usize) -> Vec<GripAction> {
         EntityKind::Line(_) if index == 0 || index == 2 => vec![GripAction::Lengthen],
         EntityKind::Arc(_) if index == 0 || index == 2 => vec![GripAction::Lengthen],
         EntityKind::Arc(_) if index == 1 => vec![GripAction::Radius],
+        EntityKind::Spline(sp) => {
+            let Some(path) = BezierPath::from_spline(sp) else { return Vec::new() };
+            let Some(part) = bezier_grip(&path, index) else { return Vec::new() };
+            let (BezierPart::Point(i) | BezierPart::Before(i) | BezierPart::After(i)) = part;
+            let Some(point) = path.points.get(i) else { return Vec::new() };
+            let mut v = Vec::new();
+            if matches!(part, BezierPart::Point(_)) {
+                v.push(GripAction::AddVertex);
+                if path.points.len() > 2 {
+                    v.push(GripAction::RemoveVertex);
+                }
+            } else {
+                v.extend([GripAction::MoveHandleAlone, GripAction::RetractHandle]);
+            }
+            // Smooth Point links the handles (again) and gives a corner its handles.
+            if !point.is_linked() {
+                v.push(GripAction::SmoothPoint);
+            }
+            if matches!(part, BezierPart::Point(_)) && (point.has_before() || point.has_after()) {
+                v.push(GripAction::CornerPoint);
+            }
+            if !point.free {
+                v.push(GripAction::IndependentHandles);
+            }
+            v
+        }
         _ => Vec::new(),
     }
 }
@@ -427,6 +507,23 @@ pub fn grip_action(kind: &EntityKind, index: usize, action: GripAction, to: Opti
     }
     let mut k = kind.clone();
     match (&mut k, action) {
+        (EntityKind::Spline(sp), action) => {
+            let mut path = BezierPath::from_spline(sp)?;
+            let part = bezier_grip(&path, index)?;
+            match (action, part) {
+                // The new point goes on the curve where it passes nearest the picked point.
+                (GripAction::AddVertex, _) => {
+                    path.insert_near(to?)?;
+                }
+                (GripAction::RemoveVertex, BezierPart::Point(i)) => path.remove_point(i)?,
+                (GripAction::SmoothPoint, BezierPart::Point(i) | BezierPart::Before(i) | BezierPart::After(i)) => path.make_smooth(i)?,
+                (GripAction::IndependentHandles, BezierPart::Point(i) | BezierPart::Before(i) | BezierPart::After(i)) => path.set_free(i, true)?,
+                (GripAction::CornerPoint | GripAction::RetractHandle, part) => path.retract(part)?,
+                (GripAction::MoveHandleAlone, part) => path.move_handle(part, to?, true)?,
+                _ => return None,
+            }
+            *sp = path.to_spline()?;
+        }
         (EntityKind::LwPolyline(p), GripAction::AddVertex) => {
             let to = to?;
             let at = match poly_grip(p, index)? {

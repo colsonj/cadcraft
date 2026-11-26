@@ -153,6 +153,7 @@ pub const NO_FILES: &[&str] = &[
     "xline",
     "ray",
     "spline",
+    "bezier",
     "donut",
     "solid",
     "text",

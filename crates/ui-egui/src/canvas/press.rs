@@ -55,6 +55,16 @@ impl Press {
         (pos.distance(self.origin) <= TOLERANCE).then_some((self.origin, modifiers))
     }
 
+    /// Whether the pointer has left the press tolerance while the button was held.
+    pub(crate) fn has_left(&self) -> bool {
+        self.left_at.is_some()
+    }
+
+    /// Whether `pos` is within the press tolerance of where the button went down.
+    pub(crate) fn is_near(&self, pos: Pos2) -> bool {
+        pos.distance(self.origin) <= TOLERANCE
+    }
+
     /// Whether the press went down on a grip ([`Self::on_grip`]).
     pub(crate) fn is_on_grip(&self) -> bool {
         self.on_grip.is_some()

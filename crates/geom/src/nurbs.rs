@@ -70,7 +70,7 @@ fn adaptive_gauss(a: f64, b: f64, whole: f64, f: &impl Fn(f64) -> f64, depth: us
 }
 
 /// Clamped knots over Bézier pieces meeting at `breaks`, for degree `p`.
-fn bezier_knots(breaks: &[f64], p: usize) -> Vec<f64> {
+pub(crate) fn bezier_knots(breaks: &[f64], p: usize) -> Vec<f64> {
     let mut k = Vec::with_capacity(breaks.len() * p + 2);
     let n = breaks.len();
     for (i, b) in breaks.iter().enumerate() {
@@ -360,6 +360,14 @@ impl Spline {
                 start_tangent: self.fit_opts.end_tangent.map(|t| -t),
                 end_tangent: self.fit_opts.start_tangent.map(|t| -t),
                 ..self.fit_opts
+            },
+            // A Bézier path's points count from the other end (a closed one keeps its first).
+            free_points: {
+                let segs = self.control.len().saturating_sub(1) / 3;
+                self.free_points
+                    .iter()
+                    .filter_map(|i| if self.closed { Some(segs.checked_sub(*i)? % segs.max(1)) } else { segs.checked_sub(*i) })
+                    .collect()
             },
         }
     }
